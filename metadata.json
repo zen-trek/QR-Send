@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Copy of Qsend",
+  "description": "A mobile-first tool to scan, stylize, and share UPI QR codes with custom amounts.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    
+    <!-- PWA Setup -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Qsend">
+    <meta name="description" content="A mobile-first tool to scan, stylize, and share UPI QR codes with custom amounts.">
+    
+    <title>Qsend</title>
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Tailwind via CDN for simplicity in this setup, though postcss is available in package.json -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              display: ['Space Grotesk', 'sans-serif'],
+            },
+            colors: {
+              background: 'var(--background)',
+              foreground: 'var(--foreground)',
+              primary: '#111111',
+              'primary-foreground': '#ffffff',
+            },
+            boxShadow: {
+              'premium': '0 20px 40px -10px rgba(0, 0, 0, 0.05)',
+              'premium-hover': '0 25px 50px -12px rgba(0, 0, 0, 0.1)',
+              'inner-light': 'inset 0 2px 4px 0 rgba(255, 255, 255, 0.1)',
+              'glow': '0 0 20px rgba(99, 102, 241, 0.15)',
+            },
+            transitionTimingFunction: {
+              'premium': 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+              'spring': 'cubic-bezier(0.25, 0.8, 0.25, 1)',
+              'soft': 'cubic-bezier(0.4, 0, 0.2, 1)',
+              'bounce-sm': 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+            },
+            transitionDuration: {
+              '200': '200ms',
+              '300': '300ms',
+              '400': '400ms',
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards',
+              'slide-up': 'slideUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards',
+              'slide-up-slow': 'slideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards',
+              'scale-in': 'scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              'scan': 'scan 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite',
+              'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'shake': 'shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              slideUp: {
+                '0%': { transform: 'translate3d(0, 15px, 0)', opacity: '0' },
+                '100%': { transform: 'translate3d(0, 0, 0)', opacity: '1' },
+              },
+              scaleIn: {
+                '0%': { transform: 'scale(0.95)', opacity: '0' },
+                '100%': { transform: 'scale(1)', opacity: '1' },
+              },
+              scan: {
+                '0%': { top: '-20%', opacity: '0' },
+                '10%': { opacity: '1' },
+                '90%': { opacity: '1' },
+                '100%': { top: '100%', opacity: '0' },
+              },
+              shake: {
+                '10%, 90%': { transform: 'translate3d(-1px, 0, 0)' },
+                '20%, 80%': { transform: 'translate3d(2px, 0, 0)' },
+                '30%, 50%, 70%': { transform: 'translate3d(-3px, 0, 0)' },
+                '40%, 60%': { transform: 'translate3d(3px, 0, 0)' }
+              }
+            }
+          },
+        },
+      }
+    </script>
+    <style>
+      body {
+        -webkit-tap-highlight-color: transparent;
+        overscroll-behavior-y: none;
+        overflow-x: hidden;
+      }
+      
+      /* Safe Area Utilities */
+      .pt-safe {
+        padding-top: env(safe-area-inset-top);
+      }
+      .pb-safe {
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+
+      /* Hide scrollbar for Chrome, Safari and Opera */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      /* Hide scrollbar for IE, Edge and Firefox */
+      .no-scrollbar {
+        -ms-overflow-style: none;  /* IE and Edge */
+        scrollbar-width: none;  /* Firefox */
+      }
+      
+      /* Hardware acceleration utility */
+      .gpu {
+        transform: translateZ(0);
+        will-change: transform, opacity;
+        backface-visibility: hidden;
+      }
+      
+      .glass {
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+      }
+      
+      .glass-dark {
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+      }
+
+      /* Premium Input Reset */
+      input[type="number"]::-webkit-inner-spin-button,
+      input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "jsqr": "https://esm.sh/jsqr@^1.4.0",
+    "qrcode": "https://esm.sh/qrcode@^1.5.4",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "html-to-image": "https://esm.sh/html-to-image@^1.11.13",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.4",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "react-easy-crop": "https://esm.sh/react-easy-crop@^5.5.6",
+    "heic2any": "https://esm.sh/heic2any@^0.0.4"
+  }
+}
+</script>
+</head>
+  <body class="bg-zinc-100 dark:bg-black text-zinc-900 dark:text-zinc-50 transition-colors duration-500 ease-soft font-sans antialiased selection:bg-indigo-500/30">
+    <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
+  </body>
+</html>
