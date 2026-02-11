@@ -604,11 +604,19 @@ const App = () => {
       setIsLoading(true);
 
       // Increased delay to ensure UI (fonts, images) are fully settled/loaded
-      await new Promise(resolve => setTimeout(resolve, 250));
+      // Safari sometimes needs a moment to rasterize styles properly
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Get accurate dimensions
+      const width = node.offsetWidth;
+      const height = node.offsetHeight;
+      const pixelRatio = Math.min(window.devicePixelRatio || 2, 3);
 
       // Generate Blob
       const blob = await htmlToImage.toBlob(node, { 
-        pixelRatio: 3, // High quality for mobile
+        pixelRatio: pixelRatio,
+        width: width,
+        height: height,
         cacheBust: true,
         skipAutoScale: true,
         backgroundColor: '#ffffff',
@@ -616,17 +624,21 @@ const App = () => {
           transform: 'none', 
           boxShadow: 'none', 
           margin: '0',
+          // Ensure element is fully opaque/visible for capture
+          opacity: '1',
         }
       });
 
-      if (!blob) throw new Error('Image generation failed');
+      if (!blob || blob.size < 1024) throw new Error('Image generation failed or empty');
 
-      // Create File
-      const file = new File([blob], 'qsend-payment.png', { type: 'image/png' });
-      
+      // Create File with sanitized name
       const activeLabel = qrLabel || 
           (currentQRId ? savedQRs.find(q => q.id === currentQRId)?.label : undefined) || 
           'Payment';
+      
+      // Sanitize filename to prevent OS issues
+      const safeName = activeLabel.replace(/[^a-z0-9]/gi, '-').toLowerCase().slice(0, 30);
+      const file = new File([blob], `qsend-${safeName}.png`, { type: 'image/png' });
       
       const shareData = {
         files: [file],
@@ -641,11 +653,10 @@ const App = () => {
         try {
           await navigator.share(shareData);
           shared = true;
-          // Only track expense if share promise resolves (user completed share)
           trackExpense(amount, activeLabel);
         } catch (e) {
+          // If User Cancelled, stop.
           if (e instanceof Error && e.name === 'AbortError') {
-             // User cancelled, do nothing
              setIsLoading(false);
              return; 
           }
@@ -660,7 +671,7 @@ const App = () => {
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `qsend-${activeLabel.replace(/\s+/g, '-').toLowerCase()}.png`;
+          a.download = `qsend-${safeName}.png`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
