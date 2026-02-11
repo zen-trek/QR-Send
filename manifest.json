@@ -1,17 +1,28 @@
 {
   "name": "Qsend",
   "short_name": "Qsend",
-  "start_url": "./index.html",
+  "id": "/",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#000000",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "icon.svg",
+      "src": "/icon.svg",
       "type": "image/svg+xml",
-      "sizes": "192x192 512x512",
+      "sizes": "any",
       "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512"
     }
   ]
 }

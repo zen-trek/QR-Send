@@ -5,7 +5,7 @@ import {
   Grid, Home, Edit2, RotateCcw, Check, Camera,
   Settings as SettingsIcon, ChevronRight, AlertTriangle,
   Search, BarChart3, TrendingUp, ChevronDown, RefreshCw,
-  Clock, Receipt, ImagePlus
+  Clock, Receipt, ImagePlus, ShieldCheck
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import Cropper from 'react-easy-crop';
@@ -20,14 +20,26 @@ import { ExpenseGraph } from './components/ExpenseGraph';
 // Local Storage Keys
 const STORAGE_KEY = 'qsend_vault_v1';
 const EXPENSE_KEY = 'qsend_expenses_v1';
+const THEME_KEY = 'qsend_theme_mode';
+const VIEW_PREF_KEY = 'qsend_expense_view';
+const EXPENSE_OPEN_KEY = 'qsend_expenses_open';
 
 // Shared Styles for Interactions
-const BTN_TAP = "active:scale-[0.96] transition-transform duration-200 ease-premium";
-const BTN_ICON = "transition-transform duration-300 group-active:scale-90 group-hover:scale-110 ease-premium";
+const BTN_TAP = "active:scale-[0.97] transition-all duration-300 ease-out";
 
 const App = () => {
   const [view, setView] = useState<ViewState>('home');
-  const [isDark, setIsDark] = useState(false);
+  
+  // Persistent Dark Mode State
+  const [isDark, setIsDark] = useState(() => {
+    try {
+      const saved = localStorage.getItem(THEME_KEY);
+      if (saved) return saved === 'dark';
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    } catch {
+      return false;
+    }
+  });
   
   // Logic State
   const [isLoading, setIsLoading] = useState(false);
@@ -61,8 +73,27 @@ const App = () => {
 
   // Expenses State
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
-  const [expenseView, setExpenseView] = useState<'week' | 'month' | 'year'>('week');
-  const [isExpensesOpen, setIsExpensesOpen] = useState(false);
+  
+  // Persistent Expense View State
+  const [expenseView, setExpenseView] = useState<'week' | 'month' | 'year'>(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_PREF_KEY);
+      if (saved === 'week' || saved === 'month' || saved === 'year') return saved;
+      return 'week';
+    } catch {
+      return 'week';
+    }
+  });
+
+  // Persistent Settings Accordion State
+  const [isExpensesOpen, setIsExpensesOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem(EXPENSE_OPEN_KEY);
+      return saved === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   // Confirmation Modal State
   const [confirmAction, setConfirmAction] = useState<'deleteAll' | 'emptyBin' | 'deleteItem' | 'resetExpenses' | null>(null);
@@ -81,13 +112,8 @@ const App = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize Theme and Storage
+  // Initialize Storage
   useEffect(() => {
-    // Theme
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setIsDark(true);
-    }
-
     // Load Gallery
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -96,6 +122,7 @@ const App = () => {
       }
     } catch (e) {
       console.error('Failed to load gallery', e);
+      setError('Failed to load saved QRs.');
     }
 
     // Load Expenses
@@ -109,13 +136,34 @@ const App = () => {
     }
   }, []);
 
+  // Persist Theme Changes
   useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    try {
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem(THEME_KEY, 'dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem(THEME_KEY, 'light');
+      }
+    } catch (e) {
+      console.error('Theme persistence failed', e);
     }
   }, [isDark]);
+
+  // Persist Expense View Changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_PREF_KEY, expenseView);
+    } catch (e) { /* ignore */ }
+  }, [expenseView]);
+
+  // Persist Accordion State
+  useEffect(() => {
+    try {
+      localStorage.setItem(EXPENSE_OPEN_KEY, String(isExpensesOpen));
+    } catch (e) { /* ignore */ }
+  }, [isExpensesOpen]);
 
   // Clean up Object URL
   useEffect(() => {
@@ -154,7 +202,13 @@ const App = () => {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setCustomBackground(reader.result as string);
+        const result = reader.result as string;
+        // Basic check for file size before setting state to avoid massive strings
+        if (result.length > 5000000) { // ~3.5MB limit
+             setError("Image too large. Please use a smaller image.");
+             return;
+        }
+        setCustomBackground(result);
         setSelectedThemeId(''); // Clear predefined theme selection
       };
       reader.readAsDataURL(file);
@@ -253,14 +307,18 @@ const App = () => {
   // --- Camera Logic ---
 
   const stopCameraStream = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-        videoRef.current.srcObject = null;
-    }
-    if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-        animationRef.current = undefined;
+    try {
+      if (videoRef.current && videoRef.current.srcObject) {
+          const stream = videoRef.current.srcObject as MediaStream;
+          stream.getTracks().forEach(track => track.stop());
+          videoRef.current.srcObject = null;
+      }
+      if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+          animationRef.current = undefined;
+      }
+    } catch (e) {
+      console.warn("Error stopping camera", e);
     }
   };
 
@@ -312,7 +370,7 @@ const App = () => {
             }
         } catch (e) {
             // Silently fail frame scan to prevent loop crash
-            console.warn("Frame scan failed", e);
+            // console.warn("Frame scan failed", e);
         }
     }
     animationRef.current = requestAnimationFrame(scanFrame);
@@ -332,7 +390,12 @@ const App = () => {
       };
       const updated = [...expenses, newExpense];
       setExpenses(updated);
-      localStorage.setItem(EXPENSE_KEY, JSON.stringify(updated));
+      try {
+        localStorage.setItem(EXPENSE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.error("Failed to save expense", e);
+        setError("Expense history is full.");
+      }
     }
   };
 
@@ -371,12 +434,9 @@ const App = () => {
     
     if (expenseView === 'week') {
       type = 'bar';
-      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       // Reorder to start from Monday
       const displayDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       
-      const currentDayIndex = now.getDay(); // 0 is Sunday
-      // We want to show the current week (Mon-Sun)
       const startOfWeek = new Date(now);
       const day = startOfWeek.getDay() || 7; // Get current day number, converting Sun(0) to 7
       if (day !== 1) startOfWeek.setHours(-24 * (day - 1)); // Go back to Monday
@@ -469,24 +529,32 @@ const App = () => {
 
     const updated = [newQR, ...savedQRs];
     setSavedQRs(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-
-    setSaveStep('success');
-    setTimeout(() => {
-      setShowSaveModal(false);
-      setCurrentRawQR(pendingQRData);
-      setAmount('');
-      setSelectedThemeId(THEMES[0].id);
-      setCustomBackground(null);
-      setCurrentQRId(newId);
-      setView('editor');
-    }, 800);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      setSaveStep('success');
+      setTimeout(() => {
+        setShowSaveModal(false);
+        setCurrentRawQR(pendingQRData);
+        setAmount('');
+        setSelectedThemeId(THEMES[0].id);
+        setCustomBackground(null);
+        setCurrentQRId(newId);
+        setView('editor');
+      }, 800);
+    } catch (e) {
+      console.error("Save failed", e);
+      setError("Storage full. Please delete some saved QRs.");
+    }
   };
 
   const handleSaveToGallery = () => {
     const label = qrLabel || (currentQRId ? savedQRs.find(q => q.id === currentQRId)?.label : 'Saved Payment QR');
+    
+    let updated = [...savedQRs];
+    let newId = currentQRId;
+
     if (currentQRId) {
-      const updated = savedQRs.map(q => {
+      updated = savedQRs.map(q => {
         if (q.id === currentQRId) {
           return { 
             ...q, 
@@ -497,10 +565,8 @@ const App = () => {
         }
         return q;
       });
-      setSavedQRs(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     } else {
-      const newId = Date.now().toString();
+      newId = Date.now().toString();
       const newQR: QRData = {
         id: newId,
         rawValue: currentRawQR,
@@ -510,17 +576,24 @@ const App = () => {
         themeId: selectedThemeId || undefined,
         customBackground: customBackground || undefined,
       };
-      const updated = [newQR, ...savedQRs];
-      setSavedQRs(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      setCurrentQRId(newId);
+      updated = [newQR, ...savedQRs];
     }
-    // Show quick feedback
-    setScanStatus('success'); 
-    setTimeout(() => {
-        setScanStatus('scanning'); // reset logic
-        setView('gallery');
-    }, 400);
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      setSavedQRs(updated);
+      if (newId) setCurrentQRId(newId);
+      
+      // Show quick feedback
+      setScanStatus('success'); 
+      setTimeout(() => {
+          setScanStatus('scanning'); // reset logic
+          setView('gallery');
+      }, 400);
+    } catch (e) {
+      console.error("Save failed", e);
+      setError("Storage full. Please delete some saved QRs.");
+    }
   };
 
   const handleShare = async () => {
@@ -530,61 +603,78 @@ const App = () => {
     try {
       setIsLoading(true);
 
-      // Force a slight delay to ensure React has fully committed any layout changes
-      await new Promise(resolve => setTimeout(resolve, 200));
+      // Increased delay to ensure UI (fonts, images) are fully settled/loaded
+      await new Promise(resolve => setTimeout(resolve, 250));
 
+      // Generate Blob
       const blob = await htmlToImage.toBlob(node, { 
-        pixelRatio: 2, // Reduced from 3 for better mobile stability and memory usage
+        pixelRatio: 3, // High quality for mobile
         cacheBust: true,
         skipAutoScale: true,
+        backgroundColor: '#ffffff',
         style: {
-          transform: 'scale(1)', 
+          transform: 'none', 
           boxShadow: 'none', 
+          margin: '0',
         }
       });
 
-      if (!blob || blob.size === 0) throw new Error('Failed to generate image');
+      if (!blob) throw new Error('Image generation failed');
 
+      // Create File
       const file = new File([blob], 'qsend-payment.png', { type: 'image/png' });
       
-      // Determine label for expense tracking
-      const activeLabel = qrLabel || (currentQRId ? savedQRs.find(q => q.id === currentQRId)?.label : undefined) || 'Payment';
+      const activeLabel = qrLabel || 
+          (currentQRId ? savedQRs.find(q => q.id === currentQRId)?.label : undefined) || 
+          'Payment';
+      
+      const shareData = {
+        files: [file],
+        title: 'Qsend QR',
+        text: `Payment QR for ${activeLabel}`,
+      };
 
-      if (navigator.share) {
-        const shareData: ShareData = {
-          files: [file],
-          title: 'Qsend Payment QR',
-          text: 'Shared via Qsend', // Valid non-empty text required by some platforms
-        };
-        
-        // Check if the device/browser supports sharing this data
-        if (navigator.canShare && !navigator.canShare(shareData)) {
-             throw new Error("Device does not support sharing this content.");
-        }
+      let shared = false;
 
+      // Robust Feature Detection for File Sharing
+      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
         try {
           await navigator.share(shareData);
-          // Auto-track expense on successful share invocation
+          shared = true;
+          // Only track expense if share promise resolves (user completed share)
           trackExpense(amount, activeLabel);
         } catch (e) {
-            // Ignore AbortError which happens when user cancels the share dialog
-            if (e instanceof Error && e.name !== 'AbortError') {
-              console.warn('Share failed:', e);
-            }
+          if (e instanceof Error && e.name === 'AbortError') {
+             // User cancelled, do nothing
+             setIsLoading(false);
+             return; 
+          }
+          console.warn('File share failed, attempting fallback...', e);
+          // Proceed to fallback
         }
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'qsend-payment.png';
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        // Fallback share (download) counts as share
-        trackExpense(amount, activeLabel);
+      } 
+      
+      // Fallback: Download Image
+      if (!shared) {
+        try {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `qsend-${activeLabel.replace(/\s+/g, '-').toLowerCase()}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          trackExpense(amount, activeLabel);
+        } catch (err) {
+          console.error("Download fallback failed", err);
+          throw new Error('Could not share or save image.');
+        }
       }
+
     } catch (err) {
       console.error(err);
-      setError('Sharing failed. Please try saving instead.');
+      setError('Sharing failed. Try taking a screenshot.');
     } finally {
       setIsLoading(false);
     }
@@ -828,6 +918,60 @@ const App = () => {
             </div>
          </>
        )}
+    </div>
+  );
+
+  const renderCropper = () => (
+    <div className="flex flex-col h-full bg-black animate-fade-in z-50 gpu relative">
+       <div className="absolute inset-0 z-10 flex items-center justify-center bg-black">
+         {cropImage && (
+           <Cropper
+             image={cropImage}
+             crop={crop}
+             zoom={zoom}
+             aspect={1}
+             onCropChange={setCrop}
+             onCropComplete={(_, croppedAreaPixels) => setCroppedAreaPixels(croppedAreaPixels)}
+             onZoomChange={setZoom}
+             showGrid={true}
+             classes={{ containerClassName: 'bg-black' }}
+           />
+         )}
+       </div>
+
+       {/* Controls Overlay */}
+       <div className="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black via-black/90 to-transparent p-6 pb-safe pt-24">
+          <div className="mb-8 px-6">
+             <div className="flex justify-between text-[10px] font-bold text-zinc-400 mb-3 uppercase tracking-widest">
+                <span>Zoom Level</span>
+                <span>{(zoom * 100).toFixed(0)}%</span>
+             </div>
+             <input 
+                type="range" 
+                value={zoom} 
+                min={1} 
+                max={3} 
+                step={0.1} 
+                aria-label="Zoom" 
+                onChange={(e) => setZoom(Number(e.target.value))} 
+                className="w-full h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-white" 
+              />
+          </div>
+          <div className="flex gap-4">
+             <button 
+               onClick={() => { setView('home'); setCropImage(null); }} 
+               className={`flex-1 h-14 bg-zinc-900 border border-zinc-800 text-white rounded-2xl font-bold text-sm tracking-wide ${BTN_TAP}`}
+             >
+               Cancel
+             </button>
+             <button 
+               onClick={onCropConfirm} 
+               className={`flex-1 h-14 bg-white text-black rounded-2xl font-bold text-sm tracking-wide shadow-[0_0_20px_rgba(255,255,255,0.2)] ${BTN_TAP}`}
+             >
+               Crop Image
+             </button>
+          </div>
+       </div>
     </div>
   );
 
@@ -1078,62 +1222,168 @@ const App = () => {
     </div>
   );
 
-  const renderHome = () => (
-    <div className="flex flex-col h-full bg-zinc-50 dark:bg-black p-6 animate-fade-in gpu">
-        <header className="flex justify-between items-center mb-8 pt-safe">
-           <div className="flex items-center gap-3">
-              <div className="bg-indigo-600 text-white p-2.5 rounded-2xl shadow-lg shadow-indigo-500/20">
-                <Logo className="w-6 h-6" />
-              </div>
-              <h1 className="text-2xl font-display font-bold text-zinc-900 dark:text-white tracking-tight">
-                Qsend
-              </h1>
-           </div>
-           {/* Expense Ticker Mini */}
-           <button onClick={() => setView('settings')} className="bg-zinc-100 dark:bg-zinc-800 rounded-full px-4 py-2 flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-             <span className="text-xs font-bold text-zinc-600 dark:text-zinc-300">
-               ₹{getExpenseSummary().monthTotal.toLocaleString()}
-             </span>
-           </button>
-        </header>
+  const renderHome = () => {
+    const { monthTotal } = getExpenseSummary();
+    const recentActivity = getRecentExpenses().slice(0, 3);
+    const quickContacts = savedQRs.filter(q => !q.deletedAt).slice(0, 6); // Up to 6 quick contacts
 
-        <div className="flex-1 flex flex-col justify-center gap-6 mb-20">
-            {/* Scan Card */}
-            <button 
-              onClick={handleStartCamera}
-              className={`relative h-48 w-full bg-indigo-600 rounded-[32px] p-6 flex flex-col justify-between overflow-hidden shadow-xl shadow-indigo-500/30 group ${BTN_TAP}`}
-            >
-               <div className="absolute top-0 right-0 p-6 opacity-20 group-hover:opacity-30 transition-opacity">
-                  <ScanLine size={120} />
+    return (
+      <div className="flex flex-col h-full bg-zinc-50 dark:bg-black animate-fade-in gpu">
+        {/* Scrollable Content Area */}
+        <div className="flex-1 overflow-y-auto no-scrollbar pb-32 pt-safe px-6">
+          
+          {/* Header Row */}
+          <header className="flex justify-between items-center mb-6 mt-2">
+             <div className="flex items-center gap-2">
+                <div className="bg-indigo-600 text-white p-2 rounded-xl shadow-lg shadow-indigo-500/20">
+                  <Logo className="w-5 h-5" />
+                </div>
+                <span className="font-display font-bold text-lg text-zinc-900 dark:text-white tracking-tight">Qsend</span>
+             </div>
+             <button onClick={() => setView('settings')} className={`p-2.5 rounded-full bg-white dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 shadow-sm ${BTN_TAP}`}>
+               <SettingsIcon size={20} />
+             </button>
+          </header>
+  
+          {/* Wallet Card - Connected to Expenses */}
+          <div className="w-full bg-gradient-to-br from-zinc-900 to-zinc-800 dark:from-zinc-800 dark:to-zinc-900 rounded-[32px] p-6 text-white shadow-xl shadow-zinc-200/50 dark:shadow-none relative overflow-hidden mb-8 group">
+             <div className="absolute top-0 right-0 p-6 opacity-10 pointer-events-none">
+                <Logo className="w-32 h-32" />
+             </div>
+             <div className="relative z-10">
+                <div className="flex items-center gap-2 mb-1 opacity-80">
+                   <ShieldCheck size={14} className="text-emerald-400" />
+                   <span className="text-xs font-medium tracking-wide">Total Spent</span>
+                </div>
+                <div className="flex items-baseline gap-1 mb-6">
+                   <span className="text-2xl font-sans font-medium text-zinc-400">₹</span>
+                   <span className="text-4xl font-display font-bold tracking-tight">{monthTotal.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 bg-white/10 rounded-lg backdrop-blur-md border border-white/5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      This Month
+                   </div>
+                   <span className="text-[10px] font-bold opacity-60 tracking-widest uppercase">My Wallet</span>
+                </div>
+             </div>
+          </div>
+  
+          {/* Primary Actions Grid - Removed Number Button */}
+          <div className="flex flex-col gap-4 mb-8">
+             {/* Scan QR - Dominant */}
+             <button 
+                onClick={handleStartCamera}
+                className={`relative h-32 w-full bg-indigo-600 rounded-[32px] p-6 flex items-center justify-between overflow-hidden shadow-lg shadow-indigo-500/25 group ${BTN_TAP}`}
+             >
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-purple-500/40 via-indigo-600 to-indigo-600 z-0" />
+                
+                <div className="relative z-10 flex flex-col items-start">
+                   <div className="flex items-center gap-2 mb-1">
+                      <ScanLine size={18} className="text-indigo-200" />
+                      <span className="text-indigo-100 font-medium text-[10px] uppercase tracking-wider">Tap to Pay</span>
+                   </div>
+                   <h2 className="text-3xl font-display font-bold text-white">Scan QR</h2>
+                </div>
+                
+                <div className="relative z-10 w-14 h-14 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center border border-white/10 group-hover:scale-110 transition-transform">
+                   <Camera size={28} className="text-white" />
+                </div>
+             </button>
+  
+             {/* Upload - Full Width Secondary */}
+             <button 
+                onClick={() => fileInputRef.current?.click()}
+                className={`relative h-20 w-full bg-white dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-[28px] p-1 pr-6 flex items-center justify-between shadow-sm overflow-hidden group ${BTN_TAP}`}
+             >
+                <div className="flex items-center gap-4 h-full">
+                    <div className="h-full aspect-square bg-zinc-50 dark:bg-zinc-800 rounded-[24px] flex items-center justify-center text-indigo-500 group-hover:scale-105 transition-transform">
+                       <ImageIcon size={24} />
+                    </div>
+                    <div className="flex flex-col items-start">
+                       <h2 className="text-lg font-display font-bold text-zinc-900 dark:text-white">Upload Image</h2>
+                       <p className="text-zinc-400 font-medium text-xs">Scan from gallery</p>
+                    </div>
+                </div>
+                <div className="w-10 h-10 rounded-full bg-zinc-50 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 dark:text-zinc-500">
+                    <ChevronRight size={20} />
+                </div>
+             </button>
+          </div>
+  
+          {/* Quick Send (Favorites) */}
+          <div className="mb-8 animate-slide-up" style={{ animationDelay: '100ms' }}>
+             <div className="flex items-center justify-between mb-4 px-1">
+                <h3 className="font-bold text-sm text-zinc-900 dark:text-white">Quick Send</h3>
+             </div>
+             <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
+                {/* Add New Placeholder */}
+                <button onClick={() => fileInputRef.current?.click()} className={`flex flex-col items-center gap-2 min-w-[64px] ${BTN_TAP}`}>
+                   <div className="w-14 h-14 rounded-full bg-zinc-100 dark:bg-zinc-800 border-2 border-dashed border-zinc-300 dark:border-zinc-700 flex items-center justify-center text-zinc-400">
+                      <ImagePlus size={20} />
+                   </div>
+                   <span className="text-[10px] font-medium text-zinc-500 truncate w-full text-center">New</span>
+                </button>
+                
+                {quickContacts.map(contact => (
+                   <button 
+                     key={contact.id} 
+                     onClick={() => loadFromGallery(contact)}
+                     className={`flex flex-col items-center gap-2 min-w-[64px] group ${BTN_TAP}`}
+                   >
+                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-indigo-100 to-white dark:from-zinc-800 dark:to-zinc-900 border border-zinc-200 dark:border-zinc-700 p-0.5 shadow-sm">
+                         <div className="w-full h-full rounded-full bg-zinc-100 dark:bg-black flex items-center justify-center text-indigo-600 font-bold text-lg">
+                            {contact.label ? contact.label.charAt(0).toUpperCase() : 'Q'}
+                         </div>
+                      </div>
+                      <span className="text-[10px] font-medium text-zinc-900 dark:text-white truncate w-16 text-center">{contact.label || 'Unknown'}</span>
+                   </button>
+                ))}
+                
+                {quickContacts.length === 0 && (
+                   <div className="flex items-center gap-2 opacity-40 px-2">
+                      <div className="w-14 h-14 rounded-full bg-zinc-100 dark:bg-zinc-900" />
+                      <div className="w-14 h-14 rounded-full bg-zinc-100 dark:bg-zinc-900" />
+                   </div>
+                )}
+             </div>
+          </div>
+  
+          {/* Recent Activity */}
+          <div className="mb-8 animate-slide-up" style={{ animationDelay: '200ms' }}>
+             <div className="flex items-center justify-between mb-4 px-1">
+                <h3 className="font-bold text-sm text-zinc-900 dark:text-white">Recent Activity</h3>
+                <button onClick={() => setView('settings')} className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">View All</button>
+             </div>
+             
+             {recentActivity.length > 0 ? (
+               <div className="space-y-3">
+                 {recentActivity.map(item => (
+                   <div key={item.id} className="flex items-center justify-between p-4 bg-white dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-2xl shadow-sm">
+                      <div className="flex items-center gap-3">
+                         <div className="w-10 h-10 rounded-full bg-zinc-50 dark:bg-zinc-800 flex items-center justify-center text-zinc-900 dark:text-white">
+                            <Receipt size={18} />
+                         </div>
+                         <div>
+                            <p className="text-sm font-bold text-zinc-900 dark:text-white truncate max-w-[120px]">{item.label || 'Payment'}</p>
+                            <p className="text-[10px] text-zinc-500">{new Date(item.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
+                         </div>
+                      </div>
+                      <span className="text-sm font-bold text-zinc-900 dark:text-white">- ₹{item.amount.toLocaleString()}</span>
+                   </div>
+                 ))}
                </div>
-               <div className="z-10 bg-white/20 backdrop-blur-md w-12 h-12 rounded-2xl flex items-center justify-center text-white">
-                  <Camera size={24} />
+             ) : (
+               <div className="p-8 text-center bg-zinc-50 dark:bg-zinc-900/50 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
+                  <p className="text-xs text-zinc-400 font-medium">No recent transactions</p>
                </div>
-               <div className="z-10 text-left">
-                  <h2 className="text-2xl font-display font-bold text-white mb-1">Scan QR</h2>
-                  <p className="text-indigo-100 font-medium text-sm">Use camera to pay</p>
-               </div>
-            </button>
-
-            {/* Upload Card */}
-            <div className="relative h-40 w-full bg-white dark:bg-zinc-900 rounded-[32px] p-1 flex items-center shadow-premium border border-zinc-200 dark:border-zinc-800">
-               <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`w-full h-full rounded-[28px] flex flex-row items-center justify-between px-8 group ${BTN_TAP}`}
-               >
-                  <div className="flex flex-col items-start">
-                     <h2 className="text-xl font-display font-bold text-zinc-900 dark:text-white mb-1">Upload Image</h2>
-                     <p className="text-zinc-400 font-medium text-sm">From gallery</p>
-                  </div>
-                  <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-800 rounded-2xl flex items-center justify-center text-zinc-900 dark:text-white group-hover:scale-110 transition-transform">
-                     <ImageIcon size={28} />
-                  </div>
-               </button>
-            </div>
+             )}
+          </div>
+  
         </div>
-    </div>
-  );
+      </div>
+    );
+  };
 
   const renderEditor = () => (
     <div className="flex flex-col h-full bg-zinc-100 dark:bg-zinc-950 animate-slide-up gpu">
@@ -1283,7 +1533,7 @@ const App = () => {
                                      onClick={(e) => e.stopPropagation()}
                                      onBlur={(e) => handleEditLabelSave(e as any, qr.id)}
                                      onKeyDown={(e) => e.key === 'Enter' && handleEditLabelSave(e as any, qr.id)}
-                                     className="w-full bg-black/40 rounded px-1 py-0.5 text-sm font-bold outline-none border border-white/30 pointer-events-auto"
+                                     className="w-full bg-black/40 rounded px-1 py-0.5 text-base font-bold outline-none border border-white/30 pointer-events-auto relative z-20"
                                   />
                                ) : (
                                   <h4 className="font-bold truncate text-sm leading-tight shadow-black drop-shadow-md">
@@ -1296,16 +1546,16 @@ const App = () => {
                       </div>
 
                       {/* Actions */}
-                      <div className="absolute top-2 right-2 flex gap-2 opacity-100 transition-opacity pointer-events-auto">
+                      <div className="absolute top-2 right-2 flex gap-2 z-20 pointer-events-auto">
                          <button 
                             onClick={(e) => handleEditLabelStart(e, qr)}
-                            className="p-2 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/40 text-white"
+                            className="p-2 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/40 text-white cursor-pointer"
                          >
                             <Edit2 size={14} />
                          </button>
                          <button 
                             onClick={(e) => { e.stopPropagation(); confirmSoftDelete(qr.id); }}
-                            className="p-2 bg-white/20 backdrop-blur-md rounded-full hover:bg-red-500/80 text-white"
+                            className="p-2 bg-white/20 backdrop-blur-md rounded-full hover:bg-red-500/80 text-white cursor-pointer"
                          >
                             <Trash2 size={14} />
                          </button>
@@ -1319,44 +1569,6 @@ const App = () => {
                 <p className="font-medium">No QRs found</p>
              </div>
           )}
-       </div>
-    </div>
-  );
-
-  const renderCropper = () => (
-    <div className="flex flex-col h-full bg-black animate-fade-in z-50 gpu">
-       <div className="relative flex-1 bg-black overflow-hidden">
-         {cropImage && (
-            <Cropper
-               image={cropImage}
-               crop={crop}
-               zoom={zoom}
-               aspect={1}
-               onCropChange={setCrop}
-               onCropComplete={(_, pixels) => setCroppedAreaPixels(pixels)}
-               onZoomChange={setZoom}
-               objectFit="contain"
-               restrictPosition={false}
-            />
-         )}
-       </div>
-       <div className="p-6 bg-zinc-900 pb-safe space-y-6">
-          <div className="flex items-center gap-4">
-             <span className="text-xs font-bold text-zinc-500">ZOOM</span>
-             <input 
-                type="range"
-                min={1}
-                max={3}
-                step={0.1}
-                value={zoom}
-                onChange={(e) => setZoom(Number(e.target.value))}
-                className="flex-1 h-1 bg-zinc-700 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-             />
-          </div>
-          <div className="flex gap-4">
-             <button onClick={() => { setView('home'); setCropImage(null); }} className="flex-1 h-12 bg-zinc-800 text-white font-bold rounded-xl">Cancel</button>
-             <button onClick={onCropConfirm} className="flex-1 h-12 bg-white text-black font-bold rounded-xl">Crop & Scan</button>
-          </div>
        </div>
     </div>
   );
@@ -1422,7 +1634,7 @@ const App = () => {
     ];
 
     return (
-       <div className="absolute bottom-6 left-6 right-6 h-16 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl rounded-[24px] shadow-2xl flex items-center justify-around px-2 z-40 border border-white/20 dark:border-zinc-800/50">
+       <div className="absolute bottom-6 left-6 right-6 h-16 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md rounded-[24px] shadow-2xl flex items-center justify-around px-2 z-40 border border-white/20 dark:border-zinc-800/50">
           {navItems.map(item => {
              const isActive = view === item.id;
              const Icon = item.icon;
@@ -1430,7 +1642,7 @@ const App = () => {
                 <button
                    key={item.id}
                    onClick={() => setView(item.id as ViewState)}
-                   className={`relative flex flex-col items-center justify-center w-16 h-full transition-all duration-300 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400'}`}
+                   className={`relative flex flex-col items-center justify-center w-16 h-full transition-all duration-300 ${isActive ? 'text-indigo-600 dark:text-indigo-400 scale-110' : 'text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400'}`}
                 >
                    <Icon size={24} className={`transition-transform duration-300 ${isActive ? '-translate-y-1' : ''}`} strokeWidth={isActive ? 2.5 : 2} />
                    <span className={`absolute bottom-2 text-[10px] font-bold transition-all duration-300 ${isActive ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
@@ -1486,7 +1698,7 @@ const App = () => {
 
         {/* Loading Overlay */}
         {isLoading && !isScanning && !showSaveModal && (
-          <div className="absolute inset-0 bg-white/60 dark:bg-black/60 backdrop-blur-md z-50 flex items-center justify-center animate-fade-in pointer-events-none">
+          <div className="absolute inset-0 bg-white/60 dark:bg-black/60 backdrop-blur-md z-[55] flex items-center justify-center animate-fade-in pointer-events-none">
              <div className="flex flex-col items-center">
                <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4" />
                <p className="text-zinc-900 dark:text-white font-bold text-sm tracking-wide">Processing...</p>

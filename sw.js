@@ -1,4 +1,4 @@
-const CACHE_NAME = 'qsend-v1';
+const CACHE_NAME = 'qsend-v2';
 const URLS_TO_CACHE = [
   './',
   './index.html',
@@ -32,6 +32,18 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Navigation fallback to index.html for SPA behavior
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      caches.match('./index.html').then((response) => {
+        return response || fetch(event.request).catch(() => {
+           return caches.match('./index.html');
+        });
+      })
+    );
+    return;
+  }
+
   // Use Stale-While-Revalidate for most requests to ensure freshness
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
@@ -55,6 +67,8 @@ self.addEventListener('fetch', (event) => {
           });
         }
         return networkResponse;
+      }).catch(() => {
+        // Fallback or just return undefined if network fails and no cache
       });
       return cachedResponse || fetchPromise;
     })
