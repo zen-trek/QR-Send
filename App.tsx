@@ -5,7 +5,7 @@ import {
   Grid, Home, Edit2, RotateCcw, Check, Camera,
   Settings as SettingsIcon, ChevronRight, AlertTriangle,
   Search, BarChart3, TrendingUp, ChevronDown, RefreshCw,
-  Clock, Receipt, ImagePlus, ShieldCheck
+  Clock, Receipt, ImagePlus, ShieldCheck, Download, Pin
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import Cropper from 'react-easy-crop';
@@ -43,6 +43,7 @@ const App = () => {
   
   // Logic State
   const [isLoading, setIsLoading] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState<'scanning' | 'success'>('scanning');
   const [error, setError] = useState<string | null>(null);
@@ -525,6 +526,7 @@ const App = () => {
       amount: '',
       themeId: selectedThemeId || undefined,
       customBackground: customBackground || undefined,
+      isPinned: false,
     };
 
     const updated = [newQR, ...savedQRs];
@@ -575,6 +577,7 @@ const App = () => {
         amount,
         themeId: selectedThemeId || undefined,
         customBackground: customBackground || undefined,
+        isPinned: false,
       };
       updated = [newQR, ...savedQRs];
     }
@@ -596,23 +599,18 @@ const App = () => {
     }
   };
 
-  const handleShare = async () => {
+  const handleDownload = async () => {
     const node = document.getElementById('qr-card-preview');
     if (!node) return;
 
     try {
-      setIsLoading(true);
-
-      // Increased delay to ensure UI (fonts, images) are fully settled/loaded
-      // Safari sometimes needs a moment to rasterize styles properly
+      setIsDownloading(true);
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Get accurate dimensions
       const width = node.offsetWidth;
       const height = node.offsetHeight;
       const pixelRatio = Math.min(window.devicePixelRatio || 2, 3);
 
-      // Generate Blob
       const blob = await htmlToImage.toBlob(node, { 
         pixelRatio: pixelRatio,
         width: width,
@@ -624,19 +622,74 @@ const App = () => {
           transform: 'none', 
           boxShadow: 'none', 
           margin: '0',
-          // Ensure element is fully opaque/visible for capture
+          opacity: '1',
+        }
+      });
+
+      if (!blob || blob.size < 1024) throw new Error('Image generation failed');
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      
+      const activeLabel = qrLabel || 
+          (currentQRId ? savedQRs.find(q => q.id === currentQRId)?.label : undefined) || 
+          'Payment';
+      
+      const safeLabel = activeLabel.replace(/[^a-z0-9]/gi, '-').toLowerCase().slice(0, 30);
+      const safeAmount = amount ? `-${amount}` : '';
+      
+      a.href = url;
+      a.download = `qsend-${safeLabel}${safeAmount}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      // Track expense ONLY on successful download
+      trackExpense(amount, activeLabel);
+
+    } catch (err) {
+      console.error(err);
+      setError('Download failed.');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleShare = async () => {
+    const node = document.getElementById('qr-card-preview');
+    if (!node) return;
+
+    try {
+      setIsLoading(true);
+
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      const width = node.offsetWidth;
+      const height = node.offsetHeight;
+      const pixelRatio = Math.min(window.devicePixelRatio || 2, 3);
+
+      const blob = await htmlToImage.toBlob(node, { 
+        pixelRatio: pixelRatio,
+        width: width,
+        height: height,
+        cacheBust: true,
+        skipAutoScale: true,
+        backgroundColor: '#ffffff',
+        style: {
+          transform: 'none', 
+          boxShadow: 'none', 
+          margin: '0',
           opacity: '1',
         }
       });
 
       if (!blob || blob.size < 1024) throw new Error('Image generation failed or empty');
 
-      // Create File with sanitized name
       const activeLabel = qrLabel || 
           (currentQRId ? savedQRs.find(q => q.id === currentQRId)?.label : undefined) || 
           'Payment';
       
-      // Sanitize filename to prevent OS issues
       const safeName = activeLabel.replace(/[^a-z0-9]/gi, '-').toLowerCase().slice(0, 30);
       const file = new File([blob], `qsend-${safeName}.png`, { type: 'image/png' });
       
@@ -646,27 +699,19 @@ const App = () => {
         text: `Payment QR for ${activeLabel}`,
       };
 
-      let shared = false;
-
-      // Robust Feature Detection for File Sharing
       if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
         try {
           await navigator.share(shareData);
-          shared = true;
-          trackExpense(amount, activeLabel);
+          // NO expense tracking here
         } catch (e) {
-          // If User Cancelled, stop.
           if (e instanceof Error && e.name === 'AbortError') {
              setIsLoading(false);
              return; 
           }
-          console.warn('File share failed, attempting fallback...', e);
-          // Proceed to fallback
+          console.warn('File share failed');
         }
-      } 
-      
-      // Fallback: Download Image
-      if (!shared) {
+      } else {
+         // Fallback to basic download without expense tracking
         try {
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -676,9 +721,7 @@ const App = () => {
           a.click();
           document.body.removeChild(a);
           setTimeout(() => URL.revokeObjectURL(url), 1000);
-          trackExpense(amount, activeLabel);
         } catch (err) {
-          console.error("Download fallback failed", err);
           throw new Error('Could not share or save image.');
         }
       }
@@ -768,6 +811,29 @@ const App = () => {
     setSavedQRs(updated);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     setEditingId(null);
+  };
+
+  const handleTogglePin = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const qr = savedQRs.find(q => q.id === id);
+    if (!qr) return;
+
+    if (qr.isPinned) {
+      // Unpin
+      const updated = savedQRs.map(q => q.id === id ? { ...q, isPinned: false } : q);
+      setSavedQRs(updated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    } else {
+      // Pin
+      const pinnedCount = savedQRs.filter(q => q.isPinned && !q.deletedAt).length;
+      if (pinnedCount >= 3) {
+        setError("You can only pin up to 3 QRs.");
+        return;
+      }
+      const updated = savedQRs.map(q => q.id === id ? { ...q, isPinned: true } : q);
+      setSavedQRs(updated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    }
   };
 
   const loadFromGallery = (qr: QRData) => {
@@ -1236,7 +1302,8 @@ const App = () => {
   const renderHome = () => {
     const { monthTotal } = getExpenseSummary();
     const recentActivity = getRecentExpenses().slice(0, 3);
-    const quickContacts = savedQRs.filter(q => !q.deletedAt).slice(0, 6); // Up to 6 quick contacts
+    // Updated: Quick Send now only shows pinned items
+    const quickContacts = savedQRs.filter(q => !q.deletedAt && q.isPinned);
 
     return (
       <div className="flex flex-col h-full bg-zinc-50 dark:bg-black animate-fade-in gpu">
@@ -1322,13 +1389,13 @@ const App = () => {
              </button>
           </div>
   
-          {/* Quick Send (Favorites) */}
+          {/* Quick Send (Pinned Items) */}
           <div className="mb-8 animate-slide-up" style={{ animationDelay: '100ms' }}>
              <div className="flex items-center justify-between mb-4 px-1">
                 <h3 className="font-bold text-sm text-zinc-900 dark:text-white">Quick Send</h3>
              </div>
              <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
-                {/* Add New Placeholder */}
+                {/* Add New Button (Always present) */}
                 <button onClick={() => fileInputRef.current?.click()} className={`flex flex-col items-center gap-2 min-w-[64px] ${BTN_TAP}`}>
                    <div className="w-14 h-14 rounded-full bg-zinc-100 dark:bg-zinc-800 border-2 border-dashed border-zinc-300 dark:border-zinc-700 flex items-center justify-center text-zinc-400">
                       <ImagePlus size={20} />
@@ -1342,7 +1409,9 @@ const App = () => {
                      onClick={() => loadFromGallery(contact)}
                      className={`flex flex-col items-center gap-2 min-w-[64px] group ${BTN_TAP}`}
                    >
-                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-indigo-100 to-white dark:from-zinc-800 dark:to-zinc-900 border border-zinc-200 dark:border-zinc-700 p-0.5 shadow-sm">
+                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-indigo-100 to-white dark:from-zinc-800 dark:to-zinc-900 border border-zinc-200 dark:border-zinc-700 p-0.5 shadow-sm relative">
+                         {/* Pinned Indicator Dot */}
+                         <div className="absolute top-0 right-0 w-3 h-3 bg-indigo-500 border-2 border-white dark:border-zinc-900 rounded-full z-10" />
                          <div className="w-full h-full rounded-full bg-zinc-100 dark:bg-black flex items-center justify-center text-indigo-600 font-bold text-lg">
                             {contact.label ? contact.label.charAt(0).toUpperCase() : 'Q'}
                          </div>
@@ -1352,9 +1421,9 @@ const App = () => {
                 ))}
                 
                 {quickContacts.length === 0 && (
-                   <div className="flex items-center gap-2 opacity-40 px-2">
-                      <div className="w-14 h-14 rounded-full bg-zinc-100 dark:bg-zinc-900" />
-                      <div className="w-14 h-14 rounded-full bg-zinc-100 dark:bg-zinc-900" />
+                   <div className="flex items-center gap-3 px-2">
+                      <p className="text-xs text-zinc-400 font-medium whitespace-nowrap">Pin QRs from Gallery</p>
+                      <ArrowLeft size={16} className="text-zinc-300 animate-pulse" />
                    </div>
                 )}
              </div>
@@ -1474,18 +1543,26 @@ const App = () => {
           </div>
        </div>
 
-       {/* Floating Action Bar */}
-       <div className="absolute bottom-6 left-6 right-6 flex gap-4 z-20">
+       {/* Floating Action Bar - Updated to include Download and Share buttons explicitly */}
+       <div className="absolute bottom-6 left-6 right-6 flex gap-3 z-20">
+          <button 
+             onClick={handleDownload}
+             disabled={isDownloading || isLoading}
+             className={`flex-[2] h-14 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-500/30 flex items-center justify-center gap-2 ${BTN_TAP}`}
+          >
+             {isDownloading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Download size={20} /> Download QR</>}
+          </button>
           <button 
              onClick={handleShare}
-             disabled={isLoading}
-             className={`flex-1 h-14 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-500/30 flex items-center justify-center gap-2 ${BTN_TAP}`}
+             disabled={isLoading || isDownloading}
+             className={`flex-1 h-14 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white rounded-2xl font-bold shadow-premium flex items-center justify-center ${BTN_TAP}`}
           >
-             {isLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Share2 size={20} /> Share</>}
+             <Share2 size={20} />
           </button>
           <button 
              onClick={handleSaveToGallery}
-             className={`h-14 w-14 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white rounded-2xl font-bold shadow-premium flex items-center justify-center ${BTN_TAP}`}
+             disabled={isLoading || isDownloading}
+             className={`flex-1 h-14 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white rounded-2xl font-bold shadow-premium flex items-center justify-center ${BTN_TAP}`}
           >
              <Save size={20} />
           </button>
@@ -1558,6 +1635,12 @@ const App = () => {
 
                       {/* Actions */}
                       <div className="absolute top-2 right-2 flex gap-2 z-20 pointer-events-auto">
+                         <button
+                            onClick={(e) => handleTogglePin(e, qr.id)}
+                            className={`p-2 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/40 cursor-pointer transition-colors ${qr.isPinned ? 'text-indigo-400 fill-indigo-400' : 'text-white'}`}
+                         >
+                            <Pin size={14} className={qr.isPinned ? "fill-current" : ""} />
+                         </button>
                          <button 
                             onClick={(e) => handleEditLabelStart(e, qr)}
                             className="p-2 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/40 text-white cursor-pointer"
@@ -1635,17 +1718,16 @@ const App = () => {
     </div>
   );
 
-  const BottomNav = () => {
+  const FloatingNav = () => {
     if (view === 'editor' || view === 'cropper' || view === 'camera') return null;
 
     const navItems = [
-      { id: 'home', icon: Home, label: 'Home' },
       { id: 'gallery', icon: Grid, label: 'Gallery' },
-      { id: 'settings', icon: SettingsIcon, label: 'Settings' }
+      { id: 'home', icon: Home, label: 'Home' }
     ];
 
     return (
-       <div className="absolute bottom-6 left-6 right-6 h-16 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md rounded-[24px] shadow-2xl flex items-center justify-around px-2 z-40 border border-white/20 dark:border-zinc-800/50">
+       <div className="absolute bottom-6 right-6 flex flex-col gap-4 z-40 pb-safe pointer-events-none">
           {navItems.map(item => {
              const isActive = view === item.id;
              const Icon = item.icon;
@@ -1653,13 +1735,20 @@ const App = () => {
                 <button
                    key={item.id}
                    onClick={() => setView(item.id as ViewState)}
-                   className={`relative flex flex-col items-center justify-center w-16 h-full transition-all duration-300 ${isActive ? 'text-indigo-600 dark:text-indigo-400 scale-110' : 'text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400'}`}
+                   className={`
+                      pointer-events-auto
+                      w-14 h-14 rounded-2xl flex items-center justify-center 
+                      shadow-premium transition-all duration-300 ease-spring
+                      border border-white/20 dark:border-zinc-800
+                      ${isActive 
+                        ? 'bg-indigo-600 text-white shadow-indigo-500/30 scale-100' 
+                        : 'bg-white/90 dark:bg-zinc-900/90 text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 backdrop-blur-xl'
+                      }
+                      ${BTN_TAP}
+                   `}
+                   aria-label={item.label}
                 >
-                   <Icon size={24} className={`transition-transform duration-300 ${isActive ? '-translate-y-1' : ''}`} strokeWidth={isActive ? 2.5 : 2} />
-                   <span className={`absolute bottom-2 text-[10px] font-bold transition-all duration-300 ${isActive ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
-                      {item.label}
-                   </span>
-                   {isActive && <div className="absolute -bottom-[1px] w-8 h-1 bg-indigo-600 rounded-t-full" />}
+                   <Icon size={24} strokeWidth={isActive ? 2.5 : 2} />
                 </button>
              );
           })}
@@ -1692,7 +1781,7 @@ const App = () => {
           {view === 'recycleBin' && renderRecycleBin()}
         </main>
         
-        <BottomNav />
+        <FloatingNav />
         {isScanning && renderScanningOverlay()}
         {showSaveModal && renderSaveModal()}
         {confirmAction && renderConfirmationModal()}

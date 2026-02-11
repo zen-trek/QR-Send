@@ -7,6 +7,7 @@ export interface QRData {
   themeId?: string;
   customBackground?: string; // New field for user uploaded background
   deletedAt?: number;
+  isPinned?: boolean;
 }
 
 export interface ExpenseRecord {
