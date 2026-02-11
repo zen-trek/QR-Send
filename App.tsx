@@ -605,17 +605,18 @@ const App = () => {
 
     try {
       setIsDownloading(true);
-      await new Promise(resolve => setTimeout(resolve, 300));
-
+      // Optimized: Removed artificial delay
+      
       const width = node.offsetWidth;
       const height = node.offsetHeight;
-      const pixelRatio = Math.min(window.devicePixelRatio || 2, 3);
+      // Fixed 3x pixel ratio for high quality export regardless of screen density
+      const pixelRatio = 3;
 
       const blob = await htmlToImage.toBlob(node, { 
         pixelRatio: pixelRatio,
         width: width,
         height: height,
-        cacheBust: true,
+        cacheBust: false, // Critical optimization: Use cached images to prevent slow re-fetching
         skipAutoScale: true,
         backgroundColor: '#ffffff',
         style: {
@@ -623,6 +624,8 @@ const App = () => {
           boxShadow: 'none', 
           margin: '0',
           opacity: '1',
+          animation: 'none', // Ensure clean capture without animation artifacts
+          transition: 'none',
         }
       });
 
@@ -663,17 +666,17 @@ const App = () => {
     try {
       setIsLoading(true);
 
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Optimized: Removed artificial delay
 
       const width = node.offsetWidth;
       const height = node.offsetHeight;
-      const pixelRatio = Math.min(window.devicePixelRatio || 2, 3);
+      const pixelRatio = 3; // High quality for share
 
       const blob = await htmlToImage.toBlob(node, { 
         pixelRatio: pixelRatio,
         width: width,
         height: height,
-        cacheBust: true,
+        cacheBust: false, // Use cached resources
         skipAutoScale: true,
         backgroundColor: '#ffffff',
         style: {
@@ -681,6 +684,8 @@ const App = () => {
           boxShadow: 'none', 
           margin: '0',
           opacity: '1',
+          animation: 'none',
+          transition: 'none',
         }
       });
 
@@ -1727,7 +1732,7 @@ const App = () => {
     ];
 
     return (
-       <div className="absolute bottom-6 right-6 flex flex-col gap-4 z-40 pb-safe pointer-events-none">
+       <div className="absolute bottom-40 right-6 flex flex-col gap-4 z-40 pb-safe pointer-events-none">
           {navItems.map(item => {
              const isActive = view === item.id;
              const Icon = item.icon;

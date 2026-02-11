@@ -39,7 +39,7 @@ export const QRCard: React.FC<QRCardProps> = ({ rawValue, amount, themeId, label
   return (
     <div 
       id={id}
-      className="relative w-full aspect-[4/5] rounded-[36px] overflow-hidden shadow-premium ring-1 ring-black/5 flex flex-col items-center justify-between p-10 transition-all duration-300 bg-white"
+      className="relative w-full h-auto rounded-[36px] overflow-hidden shadow-premium ring-1 ring-black/5 flex flex-col items-center p-8 transition-all duration-300 bg-white"
       style={backgroundStyle}
     >
       {/* Overlay - Always white/glass for consistency and readability */}
@@ -49,17 +49,17 @@ export const QRCard: React.FC<QRCardProps> = ({ rawValue, amount, themeId, label
       />
 
       {/* Content Container */}
-      <div className="relative z-10 flex flex-col items-center w-full h-full justify-between">
+      <div className="relative z-10 flex flex-col items-center w-full gap-4">
         
         {/* Header/Label */}
-        <div className="flex flex-col items-center justify-center w-full text-center mt-2">
+        <div className="flex flex-col items-center justify-center w-full text-center">
           <span className="font-display font-bold tracking-widest text-xs uppercase text-zinc-900 opacity-60 truncate max-w-full px-4 letter-spacing-2">
             {label || 'PAYMENT QR'}
           </span>
         </div>
 
         {/* QR Code Container */}
-        <div className="relative bg-white p-4 rounded-[28px] shadow-sm ring-1 ring-zinc-100 w-full aspect-square flex items-center justify-center">
+        <div className="relative bg-white p-4 rounded-[28px] shadow-sm ring-1 ring-zinc-100 w-auto h-auto max-w-full aspect-square flex items-center justify-center">
           {qrSrc && (
             <img 
               src={qrSrc} 
@@ -75,16 +75,16 @@ export const QRCard: React.FC<QRCardProps> = ({ rawValue, amount, themeId, label
         </div>
 
         {/* Amount Display */}
-        <div className="w-full text-center mb-2 h-16 flex items-center justify-center overflow-hidden px-2">
+        <div className="w-full text-center flex flex-col items-center justify-center px-2 py-2">
           {amount ? (
             <div className="flex flex-col items-center animate-slide-up w-full">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 mb-0.5">Total Amount</span>
-              <div className="text-[40px] leading-none font-display font-bold text-zinc-900 tracking-tighter truncate w-full">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 mb-2">Total Amount</span>
+              <div className="text-[40px] leading-tight font-display font-bold text-zinc-900 tracking-tighter break-words w-full">
                 <span className="text-2xl align-top opacity-40 font-sans mr-0.5">₹</span>{amount}
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center opacity-30 text-zinc-900">
+            <div className="flex flex-col items-center opacity-30 text-zinc-900 py-2">
               <span className="text-xs font-medium tracking-wide">Scan & Pay</span>
             </div>
           )}
